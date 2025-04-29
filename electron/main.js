@@ -1,12 +1,16 @@
 // electron/main.js
-const { app, BrowserWindow, ipcMain, dialog } = require('electron');
 const path = require('path');
+const { app, BrowserWindow, ipcMain, dialog } = require('electron');
 const Store = require('electron-store');
 
+// Bessere Pfadhandhabung für Dienste
+const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
+const servicesPath = isDev ? '../src/services' : '../src/services';
+
 // Dienste importieren
-const settingsService = require('../src/services/settingsService');
-const obsService = require('../src/services/obsService');
-const webServerService = require('../src/services/webServerService');
+const settingsService = require(path.join(__dirname, servicesPath, 'settingsService'));
+const obsService = require(path.join(__dirname, servicesPath, 'obsService'));
+const webServerService = require(path.join(__dirname, servicesPath, 'webServerService'));
 
 // Initialisiere den Speicher
 const store = new Store({
@@ -73,6 +77,14 @@ app.whenReady().then(() => {
     if (obsSettings.autoReconnect) {
       obsService.connect().catch(err => console.error('Fehler beim Verbinden mit OBS:', err));
     }
+  }
+});
+
+
+app.on('before-quit', () => {
+  // Webserver stoppen, wenn die App beendet wird
+  if (webServerService && typeof webServerService.stop === 'function') {
+    webServerService.stop();
   }
 });
 
