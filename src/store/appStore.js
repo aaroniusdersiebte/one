@@ -2,6 +2,72 @@
 import { create } from 'zustand';
 import { nanoid } from 'nanoid';
 
+// Safe wrapper for electron methods to handle cases when electron is not available
+const safeElectron = {
+  getData: async (key) => {
+    if (window.electron?.getData) {
+      return window.electron.getData(key);
+    }
+    console.warn('Electron getData not available, using localStorage fallback');
+    try {
+      const data = localStorage.getItem(`miniplaner_${key}`);
+      return data ? JSON.parse(data) : null;
+    } catch (e) {
+      console.error('Error accessing localStorage:', e);
+      return null;
+    }
+  },
+  
+  saveData: async (key, data) => {
+    if (window.electron?.saveData) {
+      return window.electron.saveData(key, data);
+    }
+    console.warn('Electron saveData not available, using localStorage fallback');
+    try {
+      localStorage.setItem(`miniplaner_${key}`, JSON.stringify(data));
+      return true;
+    } catch (e) {
+      console.error('Error saving to localStorage:', e);
+      return false;
+    }
+  },
+  
+  hapticFeedback: () => {
+    if (window.electron?.hapticFeedback) {
+      return window.electron.hapticFeedback();
+    }
+    // Silently fail for haptic feedback
+  },
+  
+  getOBSSettings: async () => {
+    if (window.electron?.getOBSSettings) {
+      return window.electron.getOBSSettings();
+    }
+    return { enabled: false };
+  },
+  
+  updateWebServerTasks: async (tasks) => {
+    if (window.electron?.updateWebServerTasks) {
+      return window.electron.updateWebServerTasks(tasks);
+    }
+    return { success: false };
+  },
+  
+  handleTaskCompleted: async (taskId, groupId) => {
+    if (window.electron?.handleTaskCompleted) {
+      return window.electron.handleTaskCompleted(taskId, groupId);
+    }
+    return { success: false };
+  },
+  
+  handleSubtaskCompleted: async (taskId, subtaskId, groupId) => {
+    if (window.electron?.handleSubtaskCompleted) {
+      return window.electron.handleSubtaskCompleted(taskId, subtaskId, groupId);
+    }
+    return { success: false };
+  }
+};
+
 export const useAppStore = create((set, get) => ({
   // App-Daten
   groups: [],
@@ -44,11 +110,11 @@ export const useAppStore = create((set, get) => ({
   // Daten initialisieren
   initializeData: async () => {
     try {
-      const groups = await window.electron.getData('groups') || [];
-      const tasks = await window.electron.getData('tasks') || [];
-      const tags = await window.electron.getData('tags') || [];
-      const notes = await window.electron.getData('notes') || [];
-      const archivedTasks = await window.electron.getData('archivedTasks') || [];
+      const groups = await safeElectron.getData('groups') || [];
+      const tasks = await safeElectron.getData('tasks') || [];
+      const tags = await safeElectron.getData('tags') || [];
+      const notes = await safeElectron.getData('notes') || [];
+      const archivedTasks = await safeElectron.getData('archivedTasks') || [];
 
       // Migriere alte Tasks zu neuem Format mit Beschreibungseinträgen
       const migratedTasks = tasks.map(task => {
@@ -79,10 +145,10 @@ export const useAppStore = create((set, get) => ({
       set({ groups, tasks: migratedTasks, tags, notes, archivedTasks });
       
       // Aktualisiere den Webserver mit den Aufgaben der konfigurierten Gruppe
-      const obsSettings = await window.electron.getOBSSettings();
+      const obsSettings = await safeElectron.getOBSSettings();
       if (obsSettings && obsSettings.enabled && obsSettings.streamGroup) {
         const groupTasks = migratedTasks.filter(task => task.groupId === obsSettings.streamGroup);
-        window.electron.updateWebServerTasks(groupTasks);
+        safeElectron.updateWebServerTasks(groupTasks);
       }
     } catch (error) {
       console.error('Fehler beim Laden der Daten:', error);
@@ -94,8 +160,8 @@ export const useAppStore = create((set, get) => ({
   // Initialize music data
   initializeMusicData: async () => {
     try {
-      const moods = await window.electron.getData('music_moods') || [];
-      const songs = await window.electron.getData('music_songs') || [];
+      const moods = await safeElectron.getData('music_moods') || [];
+      const songs = await safeElectron.getData('music_songs') || [];
       
       set(state => ({
         music: {
@@ -121,11 +187,11 @@ export const useAppStore = create((set, get) => ({
     const { groups, tasks, tags, notes, archivedTasks } = get();
     
     try {
-      await window.electron.saveData('groups', groups);
-      await window.electron.saveData('tasks', tasks);
-      await window.electron.saveData('tags', tags);
-      await window.electron.saveData('notes', notes);
-      await window.electron.saveData('archivedTasks', archivedTasks);
+      await safeElectron.saveData('groups', groups);
+      await safeElectron.saveData('tasks', tasks);
+      await safeElectron.saveData('tags', tags);
+      await safeElectron.saveData('notes', notes);
+      await safeElectron.saveData('archivedTasks', archivedTasks);
     } catch (error) {
       console.error('Fehler beim Speichern der Daten:', error);
     }
@@ -146,7 +212,7 @@ export const useAppStore = create((set, get) => ({
 
     set((state) => {
       const newGroups = [...state.groups, newGroup];
-      window.electron.saveData('groups', newGroups);
+      safeElectron.saveData('groups', newGroups);
       return { groups: newGroups };
     });
   },
@@ -156,7 +222,7 @@ export const useAppStore = create((set, get) => ({
       const updatedGroups = state.groups.map((group) => 
         group.id === id ? { ...group, ...updates } : group
       );
-      window.electron.saveData('groups', updatedGroups);
+      safeElectron.saveData('groups', updatedGroups);
       return { groups: updatedGroups };
     });
   },
@@ -171,8 +237,8 @@ export const useAppStore = create((set, get) => ({
         task.groupId === id ? { ...task, groupId: null } : task
       );
       
-      window.electron.saveData('groups', newGroups);
-      window.electron.saveData('tasks', newTasks);
+      safeElectron.saveData('groups', newGroups);
+      safeElectron.saveData('tasks', newTasks);
       
       return { 
         groups: newGroups,
@@ -188,7 +254,7 @@ export const useAppStore = create((set, get) => ({
       const [removed] = newGroups.splice(sourceIndex, 1);
       newGroups.splice(destIndex, 0, removed);
       
-      window.electron.saveData('groups', newGroups);
+      safeElectron.saveData('groups', newGroups);
       return { groups: newGroups };
     });
   },
@@ -210,13 +276,13 @@ export const useAppStore = create((set, get) => ({
 
     set((state) => {
       const newTasks = [...state.tasks, newTask];
-      window.electron.saveData('tasks', newTasks);
+      safeElectron.saveData('tasks', newTasks);
       
       // OBS-Integration: Aktualisiere den Webserver, wenn die Gruppe für OBS ausgewählt ist
-      window.electron.getOBSSettings().then(obsSettings => {
+      safeElectron.getOBSSettings().then(obsSettings => {
         if (obsSettings.enabled && obsSettings.streamGroup === groupId) {
           const groupTasks = newTasks.filter(task => task.groupId === groupId);
-          window.electron.updateWebServerTasks(groupTasks);
+          safeElectron.updateWebServerTasks(groupTasks);
         }
       });
       
@@ -247,7 +313,7 @@ export const useAppStore = create((set, get) => ({
         return task;
       });
       
-      window.electron.saveData('tasks', updatedTasks);
+      safeElectron.saveData('tasks', updatedTasks);
       return { tasks: updatedTasks };
     });
   },
@@ -267,15 +333,15 @@ export const useAppStore = create((set, get) => ({
         return task;
       });
       
-      window.electron.saveData('tasks', reorderedTasks);
+      safeElectron.saveData('tasks', reorderedTasks);
       
       // OBS-Integration: Aktualisiere den Webserver, wenn die Gruppe für OBS ausgewählt ist
       const updatedTask = reorderedTasks.find(task => task.id === id);
       if (updatedTask) {
-        window.electron.getOBSSettings().then(obsSettings => {
+        safeElectron.getOBSSettings().then(obsSettings => {
           if (obsSettings.enabled && obsSettings.streamGroup === updatedTask.groupId) {
             const groupTasks = reorderedTasks.filter(task => task.groupId === updatedTask.groupId);
-            window.electron.updateWebServerTasks(groupTasks);
+            safeElectron.updateWebServerTasks(groupTasks);
           }
         });
       }
@@ -290,14 +356,14 @@ export const useAppStore = create((set, get) => ({
       const groupId = taskToDelete?.groupId;
       
       const newTasks = state.tasks.filter((task) => task.id !== id);
-      window.electron.saveData('tasks', newTasks);
+      safeElectron.saveData('tasks', newTasks);
       
       // OBS-Integration: Aktualisiere den Webserver, wenn die Gruppe für OBS ausgewählt ist
       if (groupId) {
-        window.electron.getOBSSettings().then(obsSettings => {
+        safeElectron.getOBSSettings().then(obsSettings => {
           if (obsSettings.enabled && obsSettings.streamGroup === groupId) {
             const groupTasks = newTasks.filter(task => task.groupId === groupId);
-            window.electron.updateWebServerTasks(groupTasks);
+            safeElectron.updateWebServerTasks(groupTasks);
           }
         });
       }
@@ -324,10 +390,10 @@ export const useAppStore = create((set, get) => ({
       );
       
       // Speichern
-      window.electron.saveData('tasks', updatedTasks);
+      safeElectron.saveData('tasks', updatedTasks);
       
       // OBS benachrichtigen, wenn die entsprechende Gruppe ausgewählt ist
-      window.electron.getOBSSettings().then(obsSettings => {
+      safeElectron.getOBSSettings().then(obsSettings => {
         if (obsSettings.enabled && obsSettings.streamGroup === taskToUpdate.groupId) {
           // Gruppennamen finden
           const group = state.groups.find(g => g.id === taskToUpdate.groupId);
@@ -342,10 +408,10 @@ export const useAppStore = create((set, get) => ({
             }));
           
           // An den Webserver senden
-          window.electron.updateWebServerTasks(groupTasks);
+          safeElectron.updateWebServerTasks(groupTasks);
           
           // OBS-Service benachrichtigen
-          window.electron.handleTaskCompleted(taskToUpdate.id, taskToUpdate.groupId);
+          safeElectron.handleTaskCompleted(taskToUpdate.id, taskToUpdate.groupId);
         }
       });
       
@@ -371,15 +437,15 @@ export const useAppStore = create((set, get) => ({
         updatedTasks = sortTasksWithCompletedAtBottom(updatedTasks, updatedTask);
         
         // OBS-Integration: Aktualisiere den Webserver
-        window.electron.getOBSSettings().then(obsSettings => {
+        safeElectron.getOBSSettings().then(obsSettings => {
           if (obsSettings.enabled && obsSettings.streamGroup === updatedTask.groupId) {
             const groupTasks = updatedTasks.filter(task => task.groupId === updatedTask.groupId);
-            window.electron.updateWebServerTasks(groupTasks);
+            safeElectron.updateWebServerTasks(groupTasks);
           }
         });
       }
       
-      window.electron.saveData('tasks', updatedTasks);
+      safeElectron.saveData('tasks', updatedTasks);
       return { tasks: updatedTasks };
     });
   },
@@ -390,16 +456,16 @@ export const useAppStore = create((set, get) => ({
       const remainingTasks = state.tasks.filter(task => !task.completed);
       const newArchivedTasks = [...state.archivedTasks, ...completedTasks];
 
-      window.electron.saveData('tasks', remainingTasks);
-      window.electron.saveData('archivedTasks', newArchivedTasks);
+      safeElectron.saveData('tasks', remainingTasks);
+      safeElectron.saveData('archivedTasks', newArchivedTasks);
       
       // OBS-Integration: Aktualisiere den Webserver für alle Gruppen mit archivierten Aufgaben
       const affectedGroupIds = [...new Set(completedTasks.map(task => task.groupId))];
       if (affectedGroupIds.length > 0) {
-        window.electron.getOBSSettings().then(obsSettings => {
+        safeElectron.getOBSSettings().then(obsSettings => {
           if (obsSettings.enabled && affectedGroupIds.includes(obsSettings.streamGroup)) {
             const groupTasks = remainingTasks.filter(task => task.groupId === obsSettings.streamGroup);
-            window.electron.updateWebServerTasks(groupTasks);
+            safeElectron.updateWebServerTasks(groupTasks);
           }
         });
       }
@@ -426,15 +492,15 @@ export const useAppStore = create((set, get) => ({
         return task;
       });
       
-      window.electron.saveData('tasks', updatedTasks);
+      safeElectron.saveData('tasks', updatedTasks);
       
       // OBS-Integration: Aktualisiere den Webserver wenn nötig
       const updatedTask = updatedTasks.find(task => task.id === taskId);
       if (updatedTask) {
-        window.electron.getOBSSettings().then(obsSettings => {
+        safeElectron.getOBSSettings().then(obsSettings => {
           if (obsSettings.enabled && obsSettings.streamGroup === updatedTask.groupId) {
             const groupTasks = updatedTasks.filter(task => task.groupId === updatedTask.groupId);
-            window.electron.updateWebServerTasks(groupTasks);
+            safeElectron.updateWebServerTasks(groupTasks);
           }
         });
       }
@@ -455,22 +521,22 @@ export const useAppStore = create((set, get) => ({
         return task;
       });
       
-      window.electron.saveData('tasks', updatedTasks);
+      safeElectron.saveData('tasks', updatedTasks);
       
       // OBS-Integration: Aktualisiere den Webserver und benachrichtige über erledigte Unteraufgaben
       const updatedTask = updatedTasks.find(task => task.id === taskId);
       if (updatedTask) {
         const updatedSubtask = updatedTask.subtasks.find(subtask => subtask.id === subtaskId);
         
-        window.electron.getOBSSettings().then(obsSettings => {
+        safeElectron.getOBSSettings().then(obsSettings => {
           if (obsSettings.enabled && obsSettings.streamGroup === updatedTask.groupId) {
             // Webserver aktualisieren
             const groupTasks = updatedTasks.filter(task => task.groupId === updatedTask.groupId);
-            window.electron.updateWebServerTasks(groupTasks);
+            safeElectron.updateWebServerTasks(groupTasks);
             
             // Wenn Unteraufgabe als erledigt markiert wurde, benachrichtige OBS
             if (updatedSubtask && updates.completed === true) {
-              window.electron.handleSubtaskCompleted(updatedTask.id, subtaskId, updatedTask.groupId);
+              safeElectron.handleSubtaskCompleted(updatedTask.id, subtaskId, updatedTask.groupId);
             }
           }
         });
@@ -492,15 +558,15 @@ export const useAppStore = create((set, get) => ({
         return task;
       });
       
-      window.electron.saveData('tasks', updatedTasks);
+      safeElectron.saveData('tasks', updatedTasks);
       
       // OBS-Integration: Aktualisiere den Webserver wenn nötig
       const updatedTask = updatedTasks.find(task => task.id === taskId);
       if (updatedTask) {
-        window.electron.getOBSSettings().then(obsSettings => {
+        safeElectron.getOBSSettings().then(obsSettings => {
           if (obsSettings.enabled && obsSettings.streamGroup === updatedTask.groupId) {
             const groupTasks = updatedTasks.filter(task => task.groupId === updatedTask.groupId);
-            window.electron.updateWebServerTasks(groupTasks);
+            safeElectron.updateWebServerTasks(groupTasks);
           }
         });
       }
@@ -522,15 +588,15 @@ export const useAppStore = create((set, get) => ({
         return task;
       });
       
-      window.electron.saveData('tasks', updatedTasks);
+      safeElectron.saveData('tasks', updatedTasks);
       
       // OBS-Integration: Aktualisiere den Webserver wenn nötig
       const updatedTask = updatedTasks.find(task => task.id === taskId);
       if (updatedTask) {
-        window.electron.getOBSSettings().then(obsSettings => {
+        safeElectron.getOBSSettings().then(obsSettings => {
           if (obsSettings.enabled && obsSettings.streamGroup === updatedTask.groupId) {
             const groupTasks = updatedTasks.filter(task => task.groupId === updatedTask.groupId);
-            window.electron.updateWebServerTasks(groupTasks);
+            safeElectron.updateWebServerTasks(groupTasks);
           }
         });
       }
@@ -662,15 +728,15 @@ export const useAppStore = create((set, get) => ({
       // Orders aktualisieren
       finalTasks = updateTaskOrders(finalTasks);
       
-      window.electron.saveData('tasks', finalTasks);
+      safeElectron.saveData('tasks', finalTasks);
       
       // OBS-Integration: Aktualisiere den Webserver für beide betroffenen Gruppen
-      window.electron.getOBSSettings().then(obsSettings => {
+      safeElectron.getOBSSettings().then(obsSettings => {
         if (obsSettings.enabled) {
           // Wenn Quell- oder Zielgruppe die OBS-Gruppe ist, aktualisiere den Webserver
           if (obsSettings.streamGroup === sourceGroupId || obsSettings.streamGroup === destGroupId) {
             const groupTasks = finalTasks.filter(task => task.groupId === obsSettings.streamGroup);
-            window.electron.updateWebServerTasks(groupTasks);
+            safeElectron.updateWebServerTasks(groupTasks);
           }
         }
       });
@@ -689,7 +755,7 @@ export const useAppStore = create((set, get) => ({
 
     set((state) => {
       const newTags = [...state.tags, newTag];
-      window.electron.saveData('tags', newTags);
+      safeElectron.saveData('tags', newTags);
       return { tags: newTags };
     });
   },
@@ -699,7 +765,7 @@ export const useAppStore = create((set, get) => ({
       const updatedTags = state.tags.map((tag) => 
         tag.id === id ? { ...tag, ...updates } : tag
       );
-      window.electron.saveData('tags', updatedTags);
+      safeElectron.saveData('tags', updatedTags);
       return { tags: updatedTags };
     });
   },
@@ -715,14 +781,14 @@ export const useAppStore = create((set, get) => ({
         tags: task.tags.filter((tagId) => tagId !== id)
       }));
       
-      window.electron.saveData('tags', newTags);
-      window.electron.saveData('tasks', updatedTasks);
+      safeElectron.saveData('tags', newTags);
+      safeElectron.saveData('tasks', updatedTasks);
       
       // OBS-Integration: Aktualisiere den Webserver für alle betroffenen Gruppen
-      window.electron.getOBSSettings().then(obsSettings => {
+      safeElectron.getOBSSettings().then(obsSettings => {
         if (obsSettings.enabled) {
           const groupTasks = updatedTasks.filter(task => task.groupId === obsSettings.streamGroup);
-          window.electron.updateWebServerTasks(groupTasks);
+          safeElectron.updateWebServerTasks(groupTasks);
         }
       });
       
@@ -744,7 +810,7 @@ export const useAppStore = create((set, get) => ({
 
     set((state) => {
       const newNotes = [...state.notes, newNote];
-      window.electron.saveData('notes', newNotes);
+      safeElectron.saveData('notes', newNotes);
       return { notes: newNotes };
     });
     
@@ -760,7 +826,7 @@ export const useAppStore = create((set, get) => ({
           content: content !== undefined ? content : note.content
         } : note
       );
-      window.electron.saveData('notes', updatedNotes);
+      safeElectron.saveData('notes', updatedNotes);
       return { notes: updatedNotes };
     });
   },
@@ -768,7 +834,7 @@ export const useAppStore = create((set, get) => ({
   deleteNote: (id) => {
     set((state) => {
       const newNotes = state.notes.filter((note) => note.id !== id);
-      window.electron.saveData('notes', newNotes);
+      safeElectron.saveData('notes', newNotes);
       return { notes: newNotes };
     });
   },
@@ -805,14 +871,14 @@ export const useAppStore = create((set, get) => ({
       const newNotes = state.notes.filter(n => n.id !== noteId);
       const newTasks = [...state.tasks, newTask];
 
-      window.electron.saveData('notes', newNotes);
-      window.electron.saveData('tasks', newTasks);
+      safeElectron.saveData('notes', newNotes);
+      safeElectron.saveData('tasks', newTasks);
       
       // OBS-Integration: Aktualisiere den Webserver, wenn die Zielgruppe für OBS ausgewählt ist
-      window.electron.getOBSSettings().then(obsSettings => {
+      safeElectron.getOBSSettings().then(obsSettings => {
         if (obsSettings.enabled && obsSettings.streamGroup === groupId) {
           const groupTasks = newTasks.filter(task => task.groupId === groupId);
-          window.electron.updateWebServerTasks(groupTasks);
+          safeElectron.updateWebServerTasks(groupTasks);
         }
       });
 
@@ -951,7 +1017,7 @@ export const useAppStore = create((set, get) => ({
 
     set(state => {
       const newMoods = [...state.music.moods, newMood];
-      window.electron.saveData('music_moods', newMoods);
+      safeElectron.saveData('music_moods', newMoods);
       return { 
         music: {
           ...state.music,
@@ -966,7 +1032,7 @@ export const useAppStore = create((set, get) => ({
       const updatedMoods = state.music.moods.map(mood => 
         mood.id === id ? { ...mood, ...updates } : mood
       );
-      window.electron.saveData('music_moods', updatedMoods);
+      safeElectron.saveData('music_moods', updatedMoods);
       return { 
         music: {
           ...state.music,
@@ -986,8 +1052,8 @@ export const useAppStore = create((set, get) => ({
         song.moodId === id ? { ...song, moodId: null } : song
       );
       
-      window.electron.saveData('music_moods', newMoods);
-      window.electron.saveData('music_songs', updatedSongs);
+      safeElectron.saveData('music_moods', newMoods);
+      safeElectron.saveData('music_songs', updatedSongs);
       
       return {
         music: {
@@ -1025,7 +1091,7 @@ export const useAppStore = create((set, get) => ({
 
     set(state => {
       const newSongs = [...state.music.songs, newSong];
-      window.electron.saveData('music_songs', newSongs);
+      safeElectron.saveData('music_songs', newSongs);
       return {
         music: {
           ...state.music,
@@ -1042,7 +1108,7 @@ export const useAppStore = create((set, get) => ({
       const updatedSongs = state.music.songs.map(song => 
         song.id === id ? { ...song, ...updates } : song
       );
-      window.electron.saveData('music_songs', updatedSongs);
+      safeElectron.saveData('music_songs', updatedSongs);
       return {
         music: {
           ...state.music,
@@ -1055,7 +1121,7 @@ export const useAppStore = create((set, get) => ({
   deleteSong: (id) => {
     set(state => {
       const newSongs = state.music.songs.filter(song => song.id !== id);
-      window.electron.saveData('music_songs', newSongs);
+      safeElectron.saveData('music_songs', newSongs);
       
       // Update the queue if the deleted song was in it
       const newQueue = state.music.queue.filter(songId => songId !== id);
@@ -1086,7 +1152,7 @@ export const useAppStore = create((set, get) => ({
       const updatedSongs = state.music.songs.map(song => 
         song.id === songId ? { ...song, moodId } : song
       );
-      window.electron.saveData('music_songs', updatedSongs);
+      safeElectron.saveData('music_songs', updatedSongs);
       return {
         music: {
           ...state.music,

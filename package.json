@@ -2,7 +2,7 @@
   "name": "miniplaner",
   "version": "1.0.0",
   "description": "Minimalistischer Planer mit Electron und React",
-  "main": "public/electron.js",
+  "main": "build/electron.js",
   "homepage": "./",
   "author": {
     "name": "MiniPlaner Developer",
@@ -13,6 +13,7 @@
     "react-start": "cross-env BROWSER=none NODE_ENV=development react-scripts start",
     "electron-start": "wait-on http://localhost:3000 && cross-env NODE_ENV=development electron .",
     "build": "cross-env NODE_ENV=production react-scripts build",
+    "postbuild": "node copy-services.js",
     "electron:build": "npm run build && cross-env NODE_ENV=production electron-builder",
     "electron:build:win": "npm run build && cross-env NODE_ENV=production electron-builder --win",
     "electron:build:mac": "npm run build && cross-env NODE_ENV=production electron-builder --mac",
@@ -40,6 +41,7 @@
     "cross-env": "^7.0.3",
     "electron": "^25.8.0",
     "electron-builder": "^24.6.3",
+    "fs-extra": "^11.3.0",
     "postcss": "^8.5.3",
     "react-scripts": "5.0.1",
     "tailwindcss": "^3.4.17",
@@ -63,13 +65,20 @@
     "files": [
       "build/**/*",
       "electron/**/*",
-      "src/services/**/*",
-      "src/obs-templates/**/*",
-      "public/electron.js",
       "package.json"
     ],
+    "extraResources": [
+      {
+        "from": "build/services",
+        "to": "services"
+      },
+      {
+        "from": "build/obs-templates",
+        "to": "obs-templates"
+      }
+    ],
     "extraMetadata": {
-      "main": "public/electron.js"
+      "main": "build/electron.js"
     },
     "directories": {
       "buildResources": "assets"
@@ -99,6 +108,7 @@
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true
     },
-    "publish": null
+    "publish": null,
+    "asar": true
   }
 }

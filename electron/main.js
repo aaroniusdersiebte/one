@@ -1,17 +1,26 @@
 // electron/main.js
 const path = require('path');
-const { app, BrowserWindow, ipcMain, dialog, protocol } = require('electron'); // Add protocol import
+const { app, BrowserWindow, ipcMain, dialog, protocol } = require('electron');
 const Store = require('electron-store');
 
-// Bessere Pfadhandhabung für Dienste
+// Determine environment and paths
 const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
-const servicesPath = isDev ? '../src/services' : '../src/services';
 
-// Dienste importieren
-const settingsService = require(path.join(__dirname, servicesPath, 'settingsService'));
-const obsService = require(path.join(__dirname, servicesPath, 'obsService'));
-const webServerService = require(path.join(__dirname, servicesPath, 'webServerService'));
-const musicService = require(path.join(__dirname, servicesPath, 'musicService'));
+// Get correct paths for services
+const getResourcePath = (resourceName) => {
+  if (isDev) {
+    // In development, services are in src/services
+    return path.join(__dirname, '..', 'src', resourceName);
+  } else {
+    // In production, services are copied to extraResources
+    return path.join(process.resourcesPath, resourceName);
+  }
+};
+
+// Log paths for debugging
+console.log('App path:', app.getAppPath());
+console.log('Resources path:', process.resourcesPath);
+console.log('Services path:', getResourcePath('services'));
 
 // Initialisiere den Speicher
 const store = new Store({
@@ -26,6 +35,64 @@ const store = new Store({
     music_songs: []
   }
 });
+
+// Log store path
+console.log('Store path:', store.path);
+
+// Dienste importieren (dynamische Imports verwenden)
+let settingsService;
+let obsService;
+let webServerService;
+let musicService;
+
+try {
+  settingsService = require(path.join(getResourcePath('services'), 'settingsService.js'));
+  console.log('Loaded settingsService');
+} catch (error) {
+  console.error('Error loading settingsService:', error);
+  settingsService = {
+    getOBSSettings: () => ({}),
+    getGeneralSettings: () => ({}),
+    updateGeneralSettings: () => ({}),
+    updateOBSSettings: () => ({}),
+    exportSettings: () => ({ success: false }),
+    importSettings: () => ({ success: false })
+  };
+}
+
+try {
+  obsService = require(path.join(getResourcePath('services'), 'obsService.js'));
+  console.log('Loaded obsService');
+} catch (error) {
+  console.error('Error loading obsService:', error);
+  obsService = {
+    registerIPCHandlers: () => {},
+    handleTaskCompleted: () => {},
+    handleSubtaskCompleted: () => {}
+  };
+}
+
+try {
+  webServerService = require(path.join(getResourcePath('services'), 'webServerService.js'));
+  console.log('Loaded webServerService');
+} catch (error) {
+  console.error('Error loading webServerService:', error);
+  webServerService = {
+    registerIPCHandlers: () => {},
+    start: () => {},
+    stop: () => {}
+  };
+}
+
+try {
+  musicService = require(path.join(getResourcePath('services'), 'musicService.js'));
+  console.log('Loaded musicService');
+} catch (error) {
+  console.error('Error loading musicService:', error);
+  musicService = {
+    registerIPCHandlers: () => {}
+  };
+}
 
 let mainWindow;
 
@@ -47,11 +114,11 @@ function createWindow() {
   });
 
   // WICHTIG: Lade die richtige URL basierend auf der Umgebung
-  const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
   const startUrl = isDev 
     ? 'http://localhost:3000' // Dev server
     : `file://${path.join(__dirname, '../build/index.html')}`; // Production build path
   
+  console.log('Loading URL:', startUrl);
   mainWindow.loadURL(startUrl);
   
   // Öffne die DevTools im Entwicklungsmodus
@@ -84,15 +151,19 @@ app.whenReady().then(() => {
   createWindow();
   
   // Dienste starten, wenn Einstellungen aktiviert sind
-  const obsSettings = settingsService.getOBSSettings();
-  if (obsSettings.enabled) {
-    // Webserver starten
-    webServerService.start();
-    
-    // Mit OBS verbinden, wenn autoReconnect aktiviert ist
-    if (obsSettings.autoReconnect) {
-      obsService.connect().catch(err => console.error('Fehler beim Verbinden mit OBS:', err));
+  try {
+    const obsSettings = settingsService.getOBSSettings();
+    if (obsSettings.enabled) {
+      // Webserver starten
+      webServerService.start();
+      
+      // Mit OBS verbinden, wenn autoReconnect aktiviert ist
+      if (obsSettings.autoReconnect) {
+        obsService.connect().catch(err => console.error('Fehler beim Verbinden mit OBS:', err));
+      }
     }
+  } catch (error) {
+    console.error('Error starting services:', error);
   }
 });
 
@@ -121,12 +192,22 @@ app.on('activate', () => {
 
 // IPC Kommunikation für Datenspeicherung
 ipcMain.handle('getData', async (event, key) => {
-  return store.get(key);
+  try {
+    return store.get(key);
+  } catch (error) {
+    console.error(`Error getting data for key ${key}:`, error);
+    return null;
+  }
 });
 
 ipcMain.handle('saveData', async (event, { key, data }) => {
-  store.set(key, data);
-  return true;
+  try {
+    store.set(key, data);
+    return true;
+  } catch (error) {
+    console.error(`Error saving data for key ${key}:`, error);
+    return false;
+  }
 });
 
 // Haptisches Feedback durch Vibration (Windows)

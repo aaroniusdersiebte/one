@@ -1,10 +1,25 @@
 // electron/preload.js
 const { contextBridge, ipcRenderer } = require('electron');
-const fs = require('fs');
-const path = require('path');
 
-// Exponiere sichere APIs für den Renderer-Prozess
-contextBridge.exposeInMainWorld('electron', {
+// For file system access, we need to safely import fs
+let fs;
+let path;
+try {
+  fs = require('fs');
+  path = require('path');
+  console.log('Successfully loaded Node.js modules in preload');
+} catch (error) {
+  console.error('Error loading Node.js modules in preload:', error);
+  // Create dummy versions if import fails
+  fs = {
+    existsSync: () => false,
+    statSync: () => ({ size: 0, isFile: () => false, birthtime: new Date(), mtime: new Date() })
+  };
+  path = { join: (...args) => args.join('/') };
+}
+
+// Define all the API functions we want to expose
+const electronAPI = {
   // Datenspeicherung
   getData: (key) => ipcRenderer.invoke('getData', key),
   saveData: (key, data) => ipcRenderer.invoke('saveData', { key, data }),
@@ -89,4 +104,12 @@ contextBridge.exposeInMainWorld('electron', {
       ipcRenderer.removeListener(channel, func);
     }
   }
-});
+};
+
+// Expose the API to the renderer process
+try {
+  contextBridge.exposeInMainWorld('electron', electronAPI);
+  console.log('Electron API exposed successfully');
+} catch (error) {
+  console.error('Failed to expose Electron API:', error);
+}
