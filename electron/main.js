@@ -1,6 +1,6 @@
 // electron/main.js
 const path = require('path');
-const { app, BrowserWindow, ipcMain, dialog } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, protocol } = require('electron'); // Add protocol import
 const Store = require('electron-store');
 
 // Bessere Pfadhandhabung für Dienste
@@ -11,6 +11,7 @@ const servicesPath = isDev ? '../src/services' : '../src/services';
 const settingsService = require(path.join(__dirname, servicesPath, 'settingsService'));
 const obsService = require(path.join(__dirname, servicesPath, 'obsService'));
 const webServerService = require(path.join(__dirname, servicesPath, 'webServerService'));
+const musicService = require(path.join(__dirname, servicesPath, 'musicService'));
 
 // Initialisiere den Speicher
 const store = new Store({
@@ -20,7 +21,9 @@ const store = new Store({
     tasks: [],
     tags: [],
     notes: [],
-    archivedTasks: []
+    archivedTasks: [],
+    music_moods: [],
+    music_songs: []
   }
 });
 
@@ -37,7 +40,9 @@ function createWindow() {
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
-      preload: path.join(__dirname, 'preload.js')
+      preload: path.join(__dirname, 'preload.js'),
+      // Enable file access via modern Electron APIs
+      webSecurity: true
     }
   });
 
@@ -65,6 +70,17 @@ function createWindow() {
 
 // Erstelle das Fenster, wenn Electron bereit ist
 app.whenReady().then(() => {
+  // Register a custom protocol for audio files
+  protocol.registerFileProtocol('audio-file', (request, callback) => {
+    const filePath = decodeURIComponent(request.url.slice('audio-file://'.length));
+    try {
+      callback({ path: filePath });
+    } catch (error) {
+      console.error('Protocol error:', error);
+      callback({ error: -2 /* FAILED */ });
+    }
+  });
+  
   createWindow();
   
   // Dienste starten, wenn Einstellungen aktiviert sind
@@ -101,6 +117,7 @@ app.on('activate', () => {
     createWindow();
   }
 });
+
 
 // IPC Kommunikation für Datenspeicherung
 ipcMain.handle('getData', async (event, key) => {
@@ -177,6 +194,23 @@ ipcMain.handle('handleSubtaskCompleted', async (event, taskId, subtaskId, groupI
   return true;
 });
 
+// IPC for file operations
+ipcMain.handle('readAudioFile', async (event, filePath) => {
+  try {
+    // Check if file exists
+    if (!require('fs').existsSync(filePath)) {
+      return { error: 'File not found' };
+    }
+    
+    // Simply return success for now, actual audio processing will happen in the renderer
+    return { success: true, path: filePath };
+  } catch (error) {
+    console.error('Error reading audio file:', error);
+    return { error: error.message };
+  }
+});
+
 // IPC-Handler für OBS und Webserver registrieren
 obsService.registerIPCHandlers();
 webServerService.registerIPCHandlers();
+musicService.registerIPCHandlers(); // Register music service IPC handlers

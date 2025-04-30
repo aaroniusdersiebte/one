@@ -22,6 +22,24 @@ export const useAppStore = create((set, get) => ({
     timeLeft: 20 * 60,
     isRunning: false
   },
+  
+  // Tab Navigation
+  activeTab: 'planner', // 'planner' oder 'music'
+  
+  // Music Feature Data
+  music: {
+    moods: [],       // Array of mood objects
+    songs: [],       // Array of song objects
+    currentSong: null, // Currently playing song
+    isPlaying: false,  // Playback state
+    volume: 0.7,       // Volume level (0.0 to 1.0)
+    shuffle: false,    // Shuffle mode
+    repeat: 'none',    // 'none', 'all', or 'one'
+    queue: [],         // Playback queue
+    currentMood: null, // Currently selected mood ID
+    progress: 0,       // Current playback progress (0.0 to 1.0)
+    duration: 0,       // Current song duration in seconds
+  },
 
   // Daten initialisieren
   initializeData: async () => {
@@ -72,6 +90,31 @@ export const useAppStore = create((set, get) => ({
       set({ groups: [], tasks: [], tags: [], notes: [], archivedTasks: [] });
     }
   },
+  
+  // Initialize music data
+  initializeMusicData: async () => {
+    try {
+      const moods = await window.electron.getData('music_moods') || [];
+      const songs = await window.electron.getData('music_songs') || [];
+      
+      set(state => ({
+        music: {
+          ...state.music,
+          moods,
+          songs
+        }
+      }));
+    } catch (error) {
+      console.error('Fehler beim Laden der Musikdaten:', error);
+      set(state => ({
+        music: {
+          ...state.music,
+          moods: [],
+          songs: []
+        }
+      }));
+    }
+  },
 
   // Daten speichern
   saveData: async () => {
@@ -86,6 +129,11 @@ export const useAppStore = create((set, get) => ({
     } catch (error) {
       console.error('Fehler beim Speichern der Daten:', error);
     }
+  },
+
+  // Tab Navigation
+  setActiveTab: (tab) => {
+    set({ activeTab: tab });
   },
 
   // Gruppen-Funktionen
@@ -699,6 +747,8 @@ export const useAppStore = create((set, get) => ({
       window.electron.saveData('notes', newNotes);
       return { notes: newNotes };
     });
+    
+    return newNote.id; // Return ID for further processing
   },
 
   updateNote: (id, title, content) => {
@@ -888,6 +938,449 @@ export const useAppStore = create((set, get) => ({
   // Suche
   setSearchQuery: (query) => {
     set({ searchQuery: query });
+  },
+
+  // Mood Management
+  addMood: (name, color = '#f97316') => {
+    const newMood = {
+      id: nanoid(),
+      name,
+      color,
+      createdAt: new Date().toISOString()
+    };
+
+    set(state => {
+      const newMoods = [...state.music.moods, newMood];
+      window.electron.saveData('music_moods', newMoods);
+      return { 
+        music: {
+          ...state.music,
+          moods: newMoods
+        }
+      };
+    });
+  },
+
+  updateMood: (id, updates) => {
+    set(state => {
+      const updatedMoods = state.music.moods.map(mood => 
+        mood.id === id ? { ...mood, ...updates } : mood
+      );
+      window.electron.saveData('music_moods', updatedMoods);
+      return { 
+        music: {
+          ...state.music,
+          moods: updatedMoods
+        }
+      };
+    });
+  },
+
+  deleteMood: (id) => {
+    set(state => {
+      // Remove mood
+      const newMoods = state.music.moods.filter(mood => mood.id !== id);
+      
+      // Update songs that were in this mood (set to no mood)
+      const updatedSongs = state.music.songs.map(song => 
+        song.moodId === id ? { ...song, moodId: null } : song
+      );
+      
+      window.electron.saveData('music_moods', newMoods);
+      window.electron.saveData('music_songs', updatedSongs);
+      
+      return {
+        music: {
+          ...state.music,
+          moods: newMoods,
+          songs: updatedSongs,
+          // Reset current mood if the deleted mood was selected
+          currentMood: state.music.currentMood === id ? null : state.music.currentMood
+        }
+      };
+    });
+  },
+
+  setCurrentMood: (moodId) => {
+    set(state => ({
+      music: {
+        ...state.music,
+        currentMood: moodId
+      }
+    }));
+  },
+
+  // Song Management
+  addSong: (filePath, metadata, moodId = null) => {
+    const newSong = {
+      id: nanoid(),
+      filePath,
+      title: metadata.title || 'Unknown Title',
+      artist: metadata.artist || 'Unknown Artist',
+      album: metadata.album || 'Unknown Album',
+      duration: metadata.duration || 0,
+      moodId,
+      addedAt: new Date().toISOString()
+    };
+
+    set(state => {
+      const newSongs = [...state.music.songs, newSong];
+      window.electron.saveData('music_songs', newSongs);
+      return {
+        music: {
+          ...state.music,
+          songs: newSongs
+        }
+      };
+    });
+    
+    return newSong.id;
+  },
+
+  updateSong: (id, updates) => {
+    set(state => {
+      const updatedSongs = state.music.songs.map(song => 
+        song.id === id ? { ...song, ...updates } : song
+      );
+      window.electron.saveData('music_songs', updatedSongs);
+      return {
+        music: {
+          ...state.music,
+          songs: updatedSongs
+        }
+      };
+    });
+  },
+
+  deleteSong: (id) => {
+    set(state => {
+      const newSongs = state.music.songs.filter(song => song.id !== id);
+      window.electron.saveData('music_songs', newSongs);
+      
+      // Update the queue if the deleted song was in it
+      const newQueue = state.music.queue.filter(songId => songId !== id);
+      
+      // If current song is deleted, play the next song
+      let currentSong = state.music.currentSong;
+      let isPlaying = state.music.isPlaying;
+      
+      if (currentSong === id) {
+        currentSong = newQueue.length > 0 ? newQueue[0] : null;
+        isPlaying = currentSong !== null && isPlaying;
+      }
+      
+      return {
+        music: {
+          ...state.music,
+          songs: newSongs,
+          queue: newQueue,
+          currentSong,
+          isPlaying
+        }
+      };
+    });
+  },
+
+  moveSongToMood: (songId, moodId) => {
+    set(state => {
+      const updatedSongs = state.music.songs.map(song => 
+        song.id === songId ? { ...song, moodId } : song
+      );
+      window.electron.saveData('music_songs', updatedSongs);
+      return {
+        music: {
+          ...state.music,
+          songs: updatedSongs
+        }
+      };
+    });
+  },
+
+  // Playback Control
+  playSong: (songId) => {
+    set(state => {
+      // If the song is already playing, just toggle play/pause
+      if (state.music.currentSong === songId) {
+        return {
+          music: {
+            ...state.music,
+            isPlaying: !state.music.isPlaying
+          }
+        };
+      }
+      
+      // Otherwise, set the new current song and start playing
+      return {
+        music: {
+          ...state.music,
+          currentSong: songId,
+          isPlaying: true,
+          progress: 0
+        }
+      };
+    });
+  },
+
+  playMood: (moodId) => {
+    set(state => {
+      // Get all songs in this mood
+      const moodSongs = state.music.songs.filter(song => song.moodId === moodId);
+      
+      if (moodSongs.length === 0) {
+        return state; // No songs in this mood
+      }
+      
+      // If shuffle is enabled, randomize the queue
+      let queue;
+      if (state.music.shuffle) {
+        // Create a shuffled copy of the mood songs
+        queue = [...moodSongs].sort(() => Math.random() - 0.5).map(song => song.id);
+      } else {
+        // Create an ordered queue
+        queue = moodSongs.map(song => song.id);
+      }
+      
+      // Set the first song as current and start playing
+      return {
+        music: {
+          ...state.music,
+          currentSong: queue[0],
+          queue: queue,
+          isPlaying: true,
+          progress: 0,
+          currentMood: moodId
+        }
+      };
+    });
+  },
+
+  togglePlay: () => {
+    set(state => ({
+      music: {
+        ...state.music,
+        isPlaying: !state.music.isPlaying
+      }
+    }));
+  },
+
+  stopPlayback: () => {
+    set(state => ({
+      music: {
+        ...state.music,
+        isPlaying: false,
+        progress: 0
+      }
+    }));
+  },
+
+  nextSong: () => {
+    set(state => {
+      const { currentSong, queue, repeat } = state.music;
+      
+      if (!currentSong || queue.length === 0) {
+        return state; // No current song or empty queue
+      }
+      
+      const currentIndex = queue.indexOf(currentSong);
+      
+      // If at the end of the queue
+      if (currentIndex === queue.length - 1) {
+        // Repeat all: go back to the first song
+        if (repeat === 'all') {
+          return {
+            music: {
+              ...state.music,
+              currentSong: queue[0],
+              progress: 0
+            }
+          };
+        }
+        // No repeat: stop playing
+        else {
+          return {
+            music: {
+              ...state.music,
+              isPlaying: false
+            }
+          };
+        }
+      }
+      
+      // Otherwise, play the next song
+      return {
+        music: {
+          ...state.music,
+          currentSong: queue[currentIndex + 1],
+          progress: 0
+        }
+      };
+    });
+  },
+
+  previousSong: () => {
+    set(state => {
+      const { currentSong, queue } = state.music;
+      
+      if (!currentSong || queue.length === 0) {
+        return state; // No current song or empty queue
+      }
+      
+      const currentIndex = queue.indexOf(currentSong);
+      
+      // If at start or progress > 3 seconds, restart the current song
+      if (currentIndex === 0 || state.music.progress > 3) {
+        return {
+          music: {
+            ...state.music,
+            progress: 0
+          }
+        };
+      }
+      
+      // Otherwise, play the previous song
+      return {
+        music: {
+          ...state.music,
+          currentSong: queue[currentIndex - 1],
+          progress: 0
+        }
+      };
+    });
+  },
+
+  toggleShuffle: () => {
+    set(state => {
+      const newShuffle = !state.music.shuffle;
+      
+      // If shuffle was turned on, randomize the current queue
+      let newQueue = [...state.music.queue];
+      if (newShuffle && state.music.currentSong) {
+        // Remove current song from queue
+        const currentSong = state.music.currentSong;
+        newQueue = newQueue.filter(id => id !== currentSong);
+        
+        // Shuffle remaining songs
+        newQueue = newQueue.sort(() => Math.random() - 0.5);
+        
+        // Put current song back at the beginning
+        newQueue.unshift(currentSong);
+      }
+      
+      return {
+        music: {
+          ...state.music,
+          shuffle: newShuffle,
+          queue: newQueue
+        }
+      };
+    });
+  },
+
+  toggleRepeat: () => {
+    set(state => {
+      // Cycle through: none -> all -> one -> none
+      const repeatStates = ['none', 'all', 'one'];
+      const currentIndex = repeatStates.indexOf(state.music.repeat);
+      const nextIndex = (currentIndex + 1) % repeatStates.length;
+      
+      return {
+        music: {
+          ...state.music,
+          repeat: repeatStates[nextIndex]
+        }
+      };
+    });
+  },
+
+  setVolume: (volume) => {
+    // Ensure volume is between 0 and 1
+    const newVolume = Math.max(0, Math.min(1, volume));
+    set(state => ({
+      music: {
+        ...state.music,
+        volume: newVolume
+      }
+    }));
+  },
+
+  updateProgress: (progress) => {
+    set(state => ({
+      music: {
+        ...state.music,
+        progress
+      }
+    }));
+  },
+
+  seekTo: (progress) => {
+    set(state => ({
+      music: {
+        ...state.music,
+        progress
+      }
+    }));
+  },
+
+  setDuration: (duration) => {
+    set(state => ({
+      music: {
+        ...state.music,
+        duration
+      }
+    }));
+  },
+
+  // Queue Management
+  addToQueue: (songId) => {
+    set(state => ({
+      music: {
+        ...state.music,
+        queue: [...state.music.queue, songId]
+      }
+    }));
+  },
+
+  removeFromQueue: (songId) => {
+    set(state => {
+      // If it's the current song, play the next one
+      let newCurrentSong = state.music.currentSong;
+      let newIsPlaying = state.music.isPlaying;
+      let newProgress = state.music.progress;
+      
+      if (newCurrentSong === songId) {
+        const currentIndex = state.music.queue.indexOf(songId);
+        if (currentIndex < state.music.queue.length - 1) {
+          // Play next song
+          newCurrentSong = state.music.queue[currentIndex + 1];
+          newProgress = 0;
+        } else {
+          // No more songs in queue
+          newCurrentSong = null;
+          newIsPlaying = false;
+        }
+      }
+      
+      return {
+        music: {
+          ...state.music,
+          queue: state.music.queue.filter(id => id !== songId),
+          currentSong: newCurrentSong,
+          isPlaying: newIsPlaying,
+          progress: newProgress
+        }
+      };
+    });
+  },
+
+  clearQueue: () => {
+    set(state => ({
+      music: {
+        ...state.music,
+        queue: [],
+        currentSong: null,
+        isPlaying: false
+      }
+    }));
   }
 }));
 

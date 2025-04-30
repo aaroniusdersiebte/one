@@ -6,10 +6,12 @@ import {
   FiMonitor, 
   FiSave, 
   FiUpload, 
-  FiDownload 
+  FiDownload,
+  FiMusic 
 } from 'react-icons/fi';
 import GeneralSettings from './GeneralSettings';
 import OBSSettings from './OBSSettings';
+import MusicSettings from './MusicSettings';
 
 function SettingsPanel({ isOpen, onClose }) {
   const [activeTab, setActiveTab] = useState('general');
@@ -151,6 +153,18 @@ function SettingsPanel({ isOpen, onClose }) {
                 <FiMonitor className="mr-3" />
                 <span>OBS Integration</span>
               </button>
+              
+              <button
+                className={`flex items-center w-full px-3 py-2 rounded-md ${
+                  activeTab === 'music' 
+                    ? 'bg-orange-600 text-white' 
+                    : 'text-gray-300 hover:bg-gray-700'
+                }`}
+                onClick={() => setActiveTab('music')}
+              >
+                <FiMusic className="mr-3" />
+                <span>Music</span>
+              </button>
             </nav>
 
             {/* Import/Export Buttons */}
@@ -179,6 +193,7 @@ function SettingsPanel({ isOpen, onClose }) {
           <div className="flex-1 p-4 overflow-y-auto">
             {activeTab === 'general' && <GeneralSettings />}
             {activeTab === 'obs' && <OBSSettings />}
+            {activeTab === 'music' && <MusicSettings />}
           </div>
         </div>
 

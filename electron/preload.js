@@ -1,5 +1,7 @@
 // electron/preload.js
 const { contextBridge, ipcRenderer } = require('electron');
+const fs = require('fs');
+const path = require('path');
 
 // Exponiere sichere APIs für den Renderer-Prozess
 contextBridge.exposeInMainWorld('electron', {
@@ -40,6 +42,39 @@ contextBridge.exposeInMainWorld('electron', {
   restartWebServer: () => ipcRenderer.invoke('webserver:restart'),
   updateWebServerTasks: (tasks) => ipcRenderer.invoke('webserver:update-tasks', tasks),
   getWebServerPreviewUrl: () => ipcRenderer.invoke('webserver:get-preview-url'),
+  
+  // Music-Funktionen
+  getAudioMetadata: (filePath) => ipcRenderer.invoke('music:get-metadata', filePath),
+  getAudioDuration: (filePath) => ipcRenderer.invoke('music:get-duration', filePath),
+  checkFileExists: (filePath) => ipcRenderer.invoke('music:file-exists', filePath),
+  readAudioFile: (filePath) => ipcRenderer.invoke('readAudioFile', filePath),
+  
+  // Direct file system access (for development and testing)
+  checkAudioFile: async (filePath) => {
+    try {
+      const exists = fs.existsSync(filePath);
+      return { exists, path: filePath };
+    } catch (error) {
+      console.error('Error checking audio file:', error);
+      return { exists: false, error: error.message };
+    }
+  },
+  
+  getFileStats: async (filePath) => {
+    try {
+      const stats = fs.statSync(filePath);
+      return { 
+        success: true, 
+        size: stats.size,
+        isFile: stats.isFile(),
+        created: stats.birthtime,
+        modified: stats.mtime
+      };
+    } catch (error) {
+      console.error('Error getting file stats:', error);
+      return { success: false, error: error.message };
+    }
+  },
   
   // Event-Handling
   on: (channel, func) => {
