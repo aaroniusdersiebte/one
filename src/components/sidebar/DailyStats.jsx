@@ -1,9 +1,10 @@
 // src/components/sidebar/DailyStats.jsx
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAppStore } from '../../store/appStore';
 
 function DailyStats() {
-  const { tasks, archivedTasks } = useAppStore();
+  const { tasks, archivedTasks, globalFocusTimer } = useAppStore();
+  
   const [stats, setStats] = useState({
     focusMinutes: 0,
     openTasks: 0,
@@ -12,37 +13,38 @@ function DailyStats() {
     totalSubtasks: 0
   });
   
-  // Animation-States für die Counter
+  // Animation states for counters
   const [openTasksAnimation, setOpenTasksAnimation] = useState(false);
   const [completedTasksAnimation, setCompletedTasksAnimation] = useState(false);
   const [subtasksAnimation, setSubtasksAnimation] = useState(false);
+  const [focusMinutesAnimation, setFocusMinutesAnimation] = useState(false);
 
   useEffect(() => {
-    // Berechne den Tag (6 Uhr bis 6 Uhr)
+    // Calculate day (6 AM to 6 AM)
     const now = new Date();
     const dayStart = new Date(now);
     dayStart.setHours(6, 0, 0, 0);
     
-    // Wenn aktuelle Zeit vor 6 Uhr, dann ist der Start am Vortag
+    // If current time is before 6 AM, use previous day's start
     if (now.getHours() < 6) {
       dayStart.setDate(dayStart.getDate() - 1);
     }
     
-    // Tagesende ist immer 6 Uhr am nächsten Tag
+    // Day end is always 6 AM the next day
     const dayEnd = new Date(dayStart);
     dayEnd.setDate(dayEnd.getDate() + 1);
     
-    // Suche Aufgaben, die heute erledigt wurden
+    // Find tasks completed today
     const completedToday = [...tasks, ...archivedTasks].filter(task => {
       if (!task.completedAt) return false;
       const completionDate = new Date(task.completedAt);
       return completionDate >= dayStart && completionDate < dayEnd;
     }).length;
     
-    // Zähle offene Aufgaben
+    // Count open tasks
     const openTasks = tasks.filter(task => !task.completed).length;
     
-    // Unteraufgaben-Statistik
+    // Subtask statistics
     let completedSubtasks = 0;
     let totalSubtasks = 0;
     
@@ -53,12 +55,12 @@ function DailyStats() {
       }
     });
     
-    // Fokuszeit berechnen (aus dem localStorage)
+    // Get focus minutes from localStorage
     const focusMinutes = localStorage.getItem('todayFocusMinutes') 
       ? parseInt(localStorage.getItem('todayFocusMinutes'), 10) 
       : 0;
     
-    // Prüfen, ob sich die Werte geändert haben und Animationen auslösen
+    // Check if values have changed and trigger animations
     if (openTasks !== stats.openTasks) {
       setOpenTasksAnimation(true);
       setTimeout(() => setOpenTasksAnimation(false), 500);
@@ -74,6 +76,11 @@ function DailyStats() {
       setTimeout(() => setSubtasksAnimation(false), 500);
     }
     
+    if (focusMinutes !== stats.focusMinutes) {
+      setFocusMinutesAnimation(true);
+      setTimeout(() => setFocusMinutesAnimation(false), 500);
+    }
+    
     setStats({
       focusMinutes,
       openTasks,
@@ -83,12 +90,19 @@ function DailyStats() {
     });
   }, [tasks, archivedTasks]);
 
+  // Format time for focus timer
+  const formatFocusTime = (seconds) => {
+    if (seconds <= 0) return '0m';
+    const minutes = Math.floor(seconds / 60);
+    return `${minutes}m`;
+  };
+
   return (
     <div className="p-3 bg-gray-800 rounded-lg mb-3">
-      {/* Statistik-Dashboard */}
+      {/* Statistics Dashboard */}
       <div className="space-y-4">
         <div className="flex space-x-3 justify-between">
-          {/* Fokuszeit */}
+          {/* Focus Time */}
           <div className="flex flex-col items-center">
             <div className="relative w-12 h-12 flex items-center justify-center">
               <svg className="w-full h-full -rotate-90" viewBox="0 0 24 24">
@@ -112,14 +126,23 @@ function DailyStats() {
                   strokeLinecap="round"
                 />
               </svg>
-              <span className="absolute text-xs font-bold text-white">
-                {stats.focusMinutes}m
-              </span>
+              <div className="absolute text-xs font-bold text-white flex flex-col items-center">
+                <span className={focusMinutesAnimation ? 'animate-bounce' : ''}>
+                  {stats.focusMinutes}m
+                </span>
+                
+                {/* Current timer display if active */}
+                {globalFocusTimer.isRunning && (
+                  <span className="text-[8px] text-orange-400 animate-pulse">
+                    {formatFocusTime(globalFocusTimer.timeLeft)}
+                  </span>
+                )}
+              </div>
             </div>
-            <span className="text-xs text-gray-400 mt-1">Fokus</span>
+            <span className="text-xs text-gray-400 mt-1">Focus</span>
           </div>
 
-          {/* Offene Aufgaben */}
+          {/* Open Tasks */}
           <div className="flex flex-col items-center">
             <div 
               className={`w-12 h-12 bg-gray-700 rounded flex items-center justify-center ${
@@ -128,10 +151,10 @@ function DailyStats() {
             >
               <span className="text-lg font-bold text-white">{stats.openTasks}</span>
             </div>
-            <span className="text-xs text-gray-400 mt-1">Offen</span>
+            <span className="text-xs text-gray-400 mt-1">Open</span>
           </div>
 
-          {/* Erledigte Aufgaben */}
+          {/* Completed Tasks */}
           <div className="flex flex-col items-center">
             <div 
               className={`w-12 h-12 bg-gray-700 rounded flex items-center justify-center ${
@@ -140,10 +163,10 @@ function DailyStats() {
             >
               <span className="text-lg font-bold text-green-500">{stats.completedToday}</span>
             </div>
-            <span className="text-xs text-gray-400 mt-1">Erledigt</span>
+            <span className="text-xs text-gray-400 mt-1">Done</span>
           </div>
 
-          {/* Unteraufgaben */}
+          {/* Subtasks */}
           <div className="flex flex-col items-center">
             <div 
               className={`w-12 h-12 bg-gray-700 rounded flex items-center justify-center ${

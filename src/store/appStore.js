@@ -78,6 +78,7 @@ export const useAppStore = create((set, get) => ({
   
   // UI-Status
   view: 'all', // 'all', 'group-[id]', 'notes'
+  viewMode: 'grid', // 'grid', 'list', or 'trello'
   selectedTaskId: null,
   searchQuery: '',
   focusModeActive: false,
@@ -88,6 +89,13 @@ export const useAppStore = create((set, get) => ({
     timeLeft: 20 * 60,
     isRunning: false
   },
+  openWindows: [], // Array of open window objects
+  globalFocusTimer: {
+    duration: 0,
+    timeLeft: 0,
+    isRunning: false
+  },
+  activeTaskInFocus: null, // ID of task or 'note-{id}' for notes
   
   // Tab Navigation
   activeTab: 'planner', // 'planner' oder 'music'
@@ -200,6 +208,11 @@ export const useAppStore = create((set, get) => ({
   // Tab Navigation
   setActiveTab: (tab) => {
     set({ activeTab: tab });
+  },
+
+  // Set view mode (grid/list/trello)
+  setViewMode: (mode) => {
+    set({ viewMode: mode });
   },
 
   // Gruppen-Funktionen
@@ -994,6 +1007,183 @@ export const useAppStore = create((set, get) => ({
         duration: state.focusTimer.duration + 5 * 60
       }
     }));
+  },
+
+  // Window management functions
+  openTaskWindow: (taskId, startFocus = false) => {
+    set((state) => {
+      // If window is already open, just bring it to front
+      if (state.openWindows.some(w => w.type === 'task' && w.data.id === taskId)) {
+        return state;
+      }
+      
+      // Find the task to get its title
+      const task = state.tasks.find(t => t.id === taskId);
+      if (!task) return state;
+      
+      // Create a new window
+      const newWindow = {
+        id: `task-${taskId}`,
+        type: 'task',
+        title: task.title,
+        data: { id: taskId },
+        isPinned: false,
+        position: { x: 100 + (state.openWindows.length * 20), y: 100 + (state.openWindows.length * 20) }
+      };
+      
+      // Start focus timer if requested
+      if (startFocus) {
+        // 25 minutes in seconds (default pomodoro time)
+        const focusDuration = 25 * 60;
+        
+        return { 
+          openWindows: [...state.openWindows, newWindow],
+          globalFocusTimer: {
+            duration: focusDuration,
+            timeLeft: focusDuration,
+            isRunning: true
+          },
+          activeTaskInFocus: taskId
+        };
+      }
+      
+      return { openWindows: [...state.openWindows, newWindow] };
+    });
+    
+    window.electron.hapticFeedback();
+  },
+
+  openNoteWindow: (noteId, startFocus = false) => {
+    set((state) => {
+      // If window is already open, just bring it to front
+      if (state.openWindows.some(w => w.type === 'note' && w.data.id === noteId)) {
+        return state;
+      }
+      
+      // Find the note to get its title
+      const note = state.notes.find(n => n.id === noteId);
+      if (!note) return state;
+      
+      // Create a new window
+      const newWindow = {
+        id: `note-${noteId}`,
+        type: 'note',
+        title: note.title,
+        data: { id: noteId },
+        isPinned: false,
+        position: { x: 100 + (state.openWindows.length * 20), y: 100 + (state.openWindows.length * 20) }
+      };
+      
+      // Start focus timer if requested
+      if (startFocus) {
+        // 25 minutes in seconds (default pomodoro time)
+        const focusDuration = 25 * 60;
+        
+        return { 
+          openWindows: [...state.openWindows, newWindow],
+          globalFocusTimer: {
+            duration: focusDuration,
+            timeLeft: focusDuration,
+            isRunning: true
+          },
+          activeTaskInFocus: `note-${noteId}`
+        };
+      }
+      
+      return { openWindows: [...state.openWindows, newWindow] };
+    });
+    
+    window.electron.hapticFeedback();
+  },
+
+  openNewTaskWindow: (groupId = null) => {
+    set((state) => {
+      // Create a new window for task creation
+      const newWindow = {
+        id: `new-task-${Date.now()}`,
+        type: 'newTask',
+        title: 'New Task',
+        data: { groupId },
+        isPinned: false,
+        position: { x: 100 + (state.openWindows.length * 20), y: 100 + (state.openWindows.length * 20) }
+      };
+      
+      return { openWindows: [...state.openWindows, newWindow] };
+    });
+    
+    window.electron.hapticFeedback();
+  },
+
+  openNewNoteWindow: () => {
+    set((state) => {
+      // Create a new window for note creation
+      const newWindow = {
+        id: `new-note-${Date.now()}`,
+        type: 'newNote',
+        title: 'New Note',
+        data: {},
+        isPinned: false,
+        position: { x: 100 + (state.openWindows.length * 20), y: 100 + (state.openWindows.length * 20) }
+      };
+      
+      return { openWindows: [...state.openWindows, newWindow] };
+    });
+    
+    window.electron.hapticFeedback();
+  },
+
+  closeWindow: (windowId) => {
+    set((state) => ({
+      openWindows: state.openWindows.filter(w => w.id !== windowId)
+    }));
+  },
+
+  pinWindow: (windowId) => {
+    set((state) => ({
+      openWindows: state.openWindows.map(w => 
+        w.id === windowId ? { ...w, isPinned: true } : w
+      )
+    }));
+  },
+
+  unpinWindow: (windowId) => {
+    set((state) => ({
+      openWindows: state.openWindows.map(w => 
+        w.id === windowId ? { ...w, isPinned: false } : w
+      )
+    }));
+  },
+
+  // Global focus timer functions
+  startFocusTimer: (taskId, durationInSeconds = 25 * 60) => {
+    set({
+      globalFocusTimer: {
+        duration: durationInSeconds,
+        timeLeft: durationInSeconds,
+        isRunning: true
+      },
+      activeTaskInFocus: taskId
+    });
+  },
+
+  updateGlobalFocusTimer: (updates) => {
+    set((state) => ({
+      globalFocusTimer: {
+        ...state.globalFocusTimer,
+        ...updates
+      }
+    }));
+  },
+
+  // Quick action handlers
+  handleQuickNewTask: () => {
+    const { openNewTaskWindow } = get();
+    openNewTaskWindow();
+  },
+
+  handleQuickNewNote: () => {
+    const { openNewNoteWindow } = get();
+    openNewNoteWindow();
   },
 
   // Navigation

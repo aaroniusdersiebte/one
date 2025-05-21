@@ -9,8 +9,12 @@ import {
   FiSearch,
   FiX,
   FiSettings,
+  FiTrash2,
+  FiEdit2,
+  FiMove,
   FiMusic
 } from 'react-icons/fi';
+import { Droppable, Draggable } from 'react-beautiful-dnd';
 import { useAppStore } from '../../store/appStore';
 import DailyStats from './DailyStats';
 import QuickActions from './QuickActions';
@@ -22,15 +26,23 @@ function Sidebar({ setShowSettings }) {
     view, 
     setView, 
     addGroup,
+    updateGroup,
+    deleteGroup,
     setSearchQuery,
     searchQuery,
     activeTab,
     setActiveTab
   } = useAppStore();
+  
+  // State for group management
   const [newGroupName, setNewGroupName] = useState('');
   const [isAddingGroup, setIsAddingGroup] = useState(false);
+  const [editingGroupId, setEditingGroupId] = useState(null);
+  const [editingGroupName, setEditingGroupName] = useState('');
   const [isSearching, setIsSearching] = useState(false);
+  const [isGroupDragging, setIsGroupDragging] = useState(false);
 
+  // Handle adding a new group
   const handleAddGroup = () => {
     if (newGroupName.trim()) {
       addGroup(newGroupName.trim());
@@ -40,12 +52,45 @@ function Sidebar({ setShowSettings }) {
     }
   };
 
-  const handleKeyDown = (e) => {
+  // Handle editing group name
+  const handleUpdateGroup = (groupId) => {
+    if (editingGroupName.trim()) {
+      updateGroup(groupId, { name: editingGroupName });
+      setEditingGroupId(null);
+      setEditingGroupName('');
+      window.electron.hapticFeedback();
+    }
+  };
+
+  // Handle deleting a group
+  const handleDeleteGroup = (groupId, groupName) => {
+    const confirmed = window.confirm(`Are you sure you want to delete the group "${groupName}"? Tasks will be moved to "No Group".`);
+    if (confirmed) {
+      deleteGroup(groupId);
+      // If current view is this group, switch to all tasks
+      if (view === `group-${groupId}`) {
+        setView('all');
+      }
+      window.electron.hapticFeedback();
+    }
+  };
+
+  // Keyboard event handlers
+  const handleNewGroupKeyDown = (e) => {
     if (e.key === 'Enter') {
       handleAddGroup();
     } else if (e.key === 'Escape') {
       setIsAddingGroup(false);
       setNewGroupName('');
+    }
+  };
+
+  const handleEditGroupKeyDown = (e, groupId) => {
+    if (e.key === 'Enter') {
+      handleUpdateGroup(groupId);
+    } else if (e.key === 'Escape') {
+      setEditingGroupId(null);
+      setEditingGroupName('');
     }
   };
 
@@ -65,14 +110,14 @@ function Sidebar({ setShowSettings }) {
         </h1>
       </div>
 
-      {/* Tägliche Statistiken hinzufügen (only for planner tab) */}
+      {/* Daily statistics (only for planner tab) */}
       {activeTab === 'planner' && (
         <div className="p-2">
           <DailyStats />
         </div>
       )}
 
-      {/* Suche (only for planner tab) */}
+      {/* Search (only for planner tab) */}
       {activeTab === 'planner' && (
         <div className="p-2">
           {isSearching ? (
@@ -80,7 +125,7 @@ function Sidebar({ setShowSettings }) {
               <FiSearch className="text-gray-400 mr-2" />
               <input
                 type="text"
-                placeholder="Suchen..."
+                placeholder="Search..."
                 className="bg-transparent w-full text-white outline-none"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
@@ -103,7 +148,7 @@ function Sidebar({ setShowSettings }) {
               onClick={() => setIsSearching(true)}
             >
               <FiSearch className="mr-2" />
-              <span>Suchen</span>
+              <span>Search</span>
             </button>
           )}
         </div>
@@ -136,7 +181,7 @@ function Sidebar({ setShowSettings }) {
         {/* Planner Navigation */}
         {activeTab === 'planner' && (
           <ul>
-            {/* Alle Aufgaben */}
+            {/* All Tasks */}
             <li>
               <button
                 className={`flex items-center w-full px-4 py-2 ${
@@ -147,11 +192,11 @@ function Sidebar({ setShowSettings }) {
                 onClick={() => setView('all')}
               >
                 <FiHome className="mr-2" />
-                <span>Alle Aufgaben</span>
+                <span>All Tasks</span>
               </button>
             </li>
 
-            {/* Notizen */}
+            {/* Notes */}
             <li>
               <button
                 className={`flex items-center w-full px-4 py-2 ${
@@ -162,11 +207,11 @@ function Sidebar({ setShowSettings }) {
                 onClick={() => setView('notes')}
               >
                 <FiEdit className="mr-2" />
-                <span>Notizen</span>
+                <span>Notes</span>
               </button>
             </li>
 
-            {/* Archiv */}
+            {/* Archive */}
             <li>
               <button
                 className={`flex items-center w-full px-4 py-2 ${
@@ -177,59 +222,146 @@ function Sidebar({ setShowSettings }) {
                 onClick={() => setView('archive')}
               >
                 <FiArchive className="mr-2" />
-                <span>Archiv</span>
+                <span>Archive</span>
               </button>
             </li>
 
-            {/* Gruppen-Header */}
-            <li className="px-4 py-2 text-xs text-gray-500 uppercase mt-4">
-              Gruppen
+            {/* Groups Header */}
+            <li className="px-4 py-2 text-xs text-gray-500 uppercase mt-4 flex items-center justify-between">
+              <span>Groups</span>
+              <FiMove className={`text-gray-500 ${isGroupDragging ? 'text-orange-500' : ''}`} size={12} />
             </li>
 
-            {/* Gruppen-Liste */}
-            {groups.map((group) => (
-              <li key={group.id}>
-                <button
-                  className={`flex items-center w-full px-4 py-2 ${
-                    view === `group-${group.id}` 
-                      ? 'bg-gray-700 text-orange-400' 
-                      : 'text-gray-400 hover:bg-gray-700 hover:text-white'
-                  }`}
-                  onClick={() => setView(`group-${group.id}`)}
+            {/* Draggable Groups List */}
+            <Droppable droppableId="groups-list" type="group">
+              {(provided) => (
+                <div 
+                  ref={provided.innerRef}
+                  {...provided.droppableProps}
+                  className="mb-2"
                 >
-                  <FiFolder className="mr-2" />
-                  <span>{group.name}</span>
-                </button>
-              </li>
-            ))}
+                  {groups.map((group, index) => (
+                    <Draggable 
+                      key={group.id} 
+                      draggableId={group.id} 
+                      index={index}
+                    >
+                      {(provided, snapshot) => {
+                        if (snapshot.isDragging !== isGroupDragging) {
+                          setIsGroupDragging(snapshot.isDragging);
+                        }
+                        
+                        return (
+                          <li
+                            ref={provided.innerRef}
+                            {...provided.draggableProps}
+                            {...provided.dragHandleProps}
+                            className="group"
+                          >
+                            {editingGroupId === group.id ? (
+                              <div className="px-4 py-2">
+                                <div className="flex items-center">
+                                  <input
+                                    type="text"
+                                    className="bg-gray-700 text-white px-2 py-1 rounded w-full outline-none focus:ring-1 focus:ring-orange-500"
+                                    value={editingGroupName}
+                                    onChange={(e) => setEditingGroupName(e.target.value)}
+                                    onKeyDown={(e) => handleEditGroupKeyDown(e, group.id)}
+                                    autoFocus
+                                  />
+                                  <button
+                                    className="ml-2 text-green-500 hover:text-green-400 p-1"
+                                    onClick={() => handleUpdateGroup(group.id)}
+                                  >
+                                    <FiCheck size={14} />
+                                  </button>
+                                  <button
+                                    className="text-red-500 hover:text-red-400 p-1"
+                                    onClick={() => {
+                                      setEditingGroupId(null);
+                                      setEditingGroupName('');
+                                    }}
+                                  >
+                                    <FiX size={14} />
+                                  </button>
+                                </div>
+                              </div>
+                            ) : (
+                              <div className="flex items-center">
+                                <button
+                                  className={`flex items-center w-full px-4 py-2 ${
+                                    view === `group-${group.id}` 
+                                      ? 'bg-gray-700 text-orange-400' 
+                                      : 'text-gray-400 hover:bg-gray-700 hover:text-white'
+                                  }`}
+                                  onClick={() => setView(`group-${group.id}`)}
+                                >
+                                  <FiFolder className="mr-2" />
+                                  <span>{group.name}</span>
+                                </button>
+                                
+                                <div className="hidden group-hover:flex mr-2">
+                                  <button 
+                                    className="text-blue-500 hover:text-blue-400 p-1"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setEditingGroupId(group.id);
+                                      setEditingGroupName(group.name);
+                                    }}
+                                    title="Rename"
+                                  >
+                                    <FiEdit2 size={14} />
+                                  </button>
+                                  <button 
+                                    className="text-red-500 hover:text-red-400 p-1"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleDeleteGroup(group.id, group.name);
+                                    }}
+                                    title="Delete"
+                                  >
+                                    <FiTrash2 size={14} />
+                                  </button>
+                                </div>
+                              </div>
+                            )}
+                          </li>
+                        );
+                      }}
+                    </Draggable>
+                  ))}
+                  {provided.placeholder}
+                </div>
+              )}
+            </Droppable>
 
-            {/* Neue Gruppe hinzufügen */}
+            {/* Add New Group */}
             {isAddingGroup ? (
               <li className="px-4 py-2">
                 <div className="flex items-center">
                   <input
                     type="text"
-                    placeholder="Gruppenname"
-                    className="bg-gray-700 text-white px-2 py-1 rounded w-full outline-none"
+                    placeholder="Group name"
+                    className="bg-gray-700 text-white px-2 py-1 rounded w-full outline-none focus:ring-1 focus:ring-orange-500"
                     value={newGroupName}
                     onChange={(e) => setNewGroupName(e.target.value)}
-                    onKeyDown={handleKeyDown}
+                    onKeyDown={handleNewGroupKeyDown}
                     autoFocus
                   />
                   <button
-                    className="ml-2 text-green-500 hover:text-green-400"
+                    className="ml-2 text-green-500 hover:text-green-400 p-1"
                     onClick={handleAddGroup}
                   >
-                    <FiPlus />
+                    <FiCheck size={14} />
                   </button>
                   <button
-                    className="ml-1 text-red-500 hover:text-red-400"
+                    className="text-red-500 hover:text-red-400 p-1"
                     onClick={() => {
                       setIsAddingGroup(false);
                       setNewGroupName('');
                     }}
                   >
-                    <FiX />
+                    <FiX size={14} />
                   </button>
                 </div>
               </li>
@@ -240,7 +372,7 @@ function Sidebar({ setShowSettings }) {
                   onClick={() => setIsAddingGroup(true)}
                 >
                   <FiPlus className="mr-2" />
-                  <span>Neue Gruppe</span>
+                  <span>New Group</span>
                 </button>
               </li>
             )}
@@ -253,18 +385,18 @@ function Sidebar({ setShowSettings }) {
         )}
       </nav>
 
-      {/* Einstellungen-Button */}
+      {/* Settings Button */}
       <div className="p-2 border-t border-gray-700">
         <button
           className="flex items-center text-gray-400 hover:text-white w-full px-4 py-2"
           onClick={() => setShowSettings(true)}
         >
           <FiSettings className="mr-2" />
-          <span>Einstellungen</span>
+          <span>Settings</span>
         </button>
       </div>
 
-      {/* Shortcuts am unteren Rand (only for planner tab) */}
+      {/* Shortcuts at the bottom (only for planner tab) */}
       {activeTab === 'planner' && (
         <div className="p-2 mt-auto">
           <QuickActions />

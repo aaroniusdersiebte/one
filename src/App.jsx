@@ -5,31 +5,29 @@ import Sidebar from './components/sidebar/Sidebar';
 import MainContent from './components/MainContent';
 import MusicContent from './components/music/MusicContent';
 import MusicBar from './components/music/MusicBar';
-import FocusMode from './components/focus/FocusMode';
-import MinimizedFocus from './components/focus/MinimizedFocus';
+import FloatingFocusTimer from './components/focus/FloatingFocusTimer';
 import SettingsPanel from './components/settings/SettingsPanel';
+import DraggableWindow from './components/common/DraggableWindow';
 import { useAppStore } from './store/appStore';
 import './styles/tailwind.css';
 
 function App() {
   const { 
-    view, 
     initializeData, 
     moveTask, 
     moveGroup,
-    focusModeActive,
-    focusModeMinimized,
-    restoreFocusMode,
     moveSubtask,
     activeTab,
     setActiveTab,
-    initializeMusicData
+    initializeMusicData,
+    openWindows,
+    closeWindow
   } = useAppStore();
 
-  // State für Einstellungs-Panel
+  // State for settings panel
   const [showSettings, setShowSettings] = useState(false);
 
-  // Daten beim App-Start laden
+  // Load data on app start
   useEffect(() => {
     initializeData();
     initializeMusicData();
@@ -39,25 +37,25 @@ function App() {
   const handleDragEnd = (result) => {
     const { destination, source, draggableId, type } = result;
 
-    // Wenn es kein Ziel gibt, abbrechen
+    // If there's no destination, abort
     if (!destination) return;
 
-    // Wenn das Ziel das gleiche wie der Ursprung ist, abbrechen
+    // If destination is the same as origin, abort
     if (
       destination.droppableId === source.droppableId &&
       destination.index === source.index
     ) return;
 
-    // Haptisches Feedback
+    // Haptic feedback
     window.electron.hapticFeedback();
 
-    // Wenn eine Gruppe verschoben wurde
+    // If a group was moved
     if (type === 'group') {
       moveGroup(source.index, destination.index);
       return;
     }
 
-    // Wenn eine Unteraufgabe verschoben wurde
+    // If a subtask was moved
     if (type === 'subtask') {
       moveSubtask(
         source.droppableId, // taskId
@@ -68,7 +66,7 @@ function App() {
       return;
     }
 
-    // Task verschieben
+    // Move task
     moveTask(
       draggableId,
       source.droppableId,
@@ -80,8 +78,8 @@ function App() {
 
   return (
     <div className="flex flex-col h-screen bg-gray-900 text-gray-100">
-      {/* Tab Navigation */}
-      <div className="flex bg-gray-800 border-b border-gray-700">
+      {/* Module Navigation */}
+      <div className="flex border-b border-gray-700 bg-gray-800">
         <button
           className={`px-4 py-2 font-medium ${
             activeTab === 'planner' ? 'text-orange-500 border-b-2 border-orange-500' : 'text-gray-400 hover:text-white'
@@ -102,30 +100,38 @@ function App() {
 
       {/* Main Content Area */}
       <div className="flex-1 flex overflow-hidden">
-        {/* Seitenleiste */}
+        {/* Sidebar */}
         <Sidebar setShowSettings={setShowSettings} />
 
-        {/* Hauptinhalt mit Drag & Drop Kontext */}
+        {/* Main content with Drag & Drop context */}
         <DragDropContext onDragEnd={handleDragEnd}>
-          {focusModeActive && !focusModeMinimized ? (
-            <FocusMode />
-          ) : (
-            <div className="flex-1 flex flex-col">
-              {activeTab === 'planner' ? <MainContent view={view} /> : <MusicContent />}
-              
-              {/* Musik-Steuerungsleiste (immer sichtbar) */}
-              <MusicBar />
-            </div>
-          )}
+          <div className="flex-1 flex flex-col relative">
+            {activeTab === 'planner' ? <MainContent /> : <MusicContent />}
+            
+            {/* Music control bar (always visible) */}
+            <MusicBar />
+            
+            {/* Floating windows for tasks/notes */}
+            {openWindows.map((window) => (
+              <DraggableWindow
+                key={window.id}
+                id={window.id}
+                title={window.title}
+                isPinned={window.isPinned}
+                onClose={() => closeWindow(window.id)}
+                initialPosition={window.position}
+                type={window.type}
+                data={window.data}
+              />
+            ))}
+            
+            {/* Floating focus timer */}
+            <FloatingFocusTimer />
+          </div>
         </DragDropContext>
-
-        {/* Minimierter Fokus-Modus */}
-        {focusModeActive && focusModeMinimized && (
-          <MinimizedFocus onRestore={restoreFocusMode} />
-        )}
       </div>
 
-      {/* Einstellungs-Panel */}
+      {/* Settings Panel */}
       <SettingsPanel isOpen={showSettings} onClose={() => setShowSettings(false)} />
     </div>
   );
